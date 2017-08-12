@@ -4,12 +4,14 @@
 # update: 20170811
 
 ##
+from __future__ import unicode_literals
 import urllib2
 import json
 import hashlib
-
+# viabtc给出的请求demo和库，用于POST和DELETE请求
+# https://github.com/viabtc/viabtc_exchange_cn_api_cn
+from oauth import RequestClient
 ##
-
 
 
 # 行情数据函数集 ViabtcData
@@ -278,7 +280,7 @@ class ViabtcData(object):
         # 成交记录链接
         url = "https://www.viabtc.com/api/v1/market/deals" \
                     "?market=" + market + \
-                    "&last_id=" + last_id
+                    "&last_id=" + str(last_id)
         # 请求并读取成交记录数据
         req = urllib2.Request(url, headers=header)
         response = urllib2.urlopen(req).read()
@@ -291,9 +293,30 @@ class ViabtcData(object):
 
 
 # 交易系统函数集 ViabtcOrder
-
 class ViabtcOrder(object):
+    """
+    1. 查询账户信息
+    get_account_info(self)
 
+    2. 获取未完成订单列表
+    get_unfinished_orders(self, market="BCCCNY", limit=100, page=1)
+
+    3. 获取已完成订单列表
+    get_finished_orders(self, market="BCCCNY", limit=100, page=1)
+
+    4. 获取订单状态
+    get_order_status(self, order_id, market="BCCCNY")
+
+    5. 下市价单
+    order_market(self, order_type, amount, market="BCCCNY")
+
+    6. 下限价单
+    order_limit(self, order_type, amount, price, market="BCCCNY")
+
+    7. 撤销订单
+    order_withdraw(self, order_id, market="BCCCNY")
+
+    """
     # 记录请求头中的User-Agent信息
     # 若要修改请求头信息，请直接在函数中修改header=""参数
     _header = {"User-Agent": "Mozilla/5.0 (Windows NT 6.1; WOW64) "
@@ -314,12 +337,40 @@ class ViabtcOrder(object):
         self.access_id = acs_id
         self.secret_key = scr_key
 
-    # 哈希signature
+    # 制作请求链接
     @staticmethod
-    def md5(signature):
+    def url(req_url, api, api_list):
+        url = req_url
+
+        for key in api_list:
+
+            if key == "secret_key":
+                continue
+
+            if url == req_url:
+                url += ("?" + key + "=" + api[key])
+            else:
+                url += ("&" + key + "=" + api[key])
+
+        return url
+
+    # 制作&哈希signature
+    @staticmethod
+    def signature(api, api_list):
+        signature = ""
+
+        for key in api_list:
+            if signature == "":
+                signature += (key + "=" + api[key])
+            else:
+                signature += ("&" + key + "=" + api[key])
+
         md5 = hashlib.md5()
         md5.update(signature)
-        return str.upper(md5.hexdigest())
+
+        signature_md5 = str.upper(md5.hexdigest())
+
+        return signature_md5
 
     # 1. 查询账户信息
     def get_account_info(self):
@@ -348,18 +399,18 @@ class ViabtcOrder(object):
                  "message": "Ok"
             }
         """
-        # account_info链接
-        url = "https://www.viabtc.com/api/v1/balance/?" + \
-              "access_id=" + self.access_id
 
-        # 获取对应的签名
-        signature_before_md5 = "access_id=" + self.access_id + \
-                               "&secret_key=" + self.secret_key
-        signature = self.md5(signature_before_md5)
+        # api信息
+        api = {"access_id": self.access_id,
+               "secret_key": self.secret_key}
+        api_list = ["access_id", "secret_key"]
+
+        # account_info链接
+        url = self.url("https://www.viabtc.com/api/v1/balance/", api, api_list)
 
         # 将签名写入header
         header = self._header
-        header["Authorization"] = signature
+        header["Authorization"] = self.signature(api, api_list)
 
         # 请求并读取account_info数据
         req = urllib2.Request(url, headers=header)
@@ -409,24 +460,20 @@ class ViabtcOrder(object):
             }
         """
 
-        # 链接信息
-        url = "https://www.viabtc.com/api/v1/order/pending" \
-              "?page=" + str(page) + \
-              "&limit=" + str(limit) + \
-              "&market=" + market + \
-              "&access_id=" + self.access_id
+        # api信息
+        api = {"access_id": self.access_id,
+               "limit": str(limit),
+               "market": market,
+               "page": str(page),
+               "secret_key": self.secret_key}
+        api_list = ["access_id", "limit", "market", "page", "secret_key"]
 
-        # 获取对应的签名
-        signature_before_md5 = "access_id=" + self.access_id + \
-                               "&limit=" + str(limit) + \
-                               "&market=" + market + \
-                               "&page=" + str(page) +\
-                               "&secret_key=" + self.secret_key
-        signature = self.md5(signature_before_md5)
+        # 链接信息
+        url = self.url("https://www.viabtc.com/api/v1/order/pending", api, api_list)
 
         # 将签名写入header
         header = self._header
-        header["Authorization"] = signature
+        header["Authorization"] = self.signature(api, api_list)
 
         # 请求并读取数据
         req = urllib2.Request(url, headers=header)
@@ -476,24 +523,20 @@ class ViabtcOrder(object):
             }
         """
 
-        # 链接信息
-        url = "https://www.viabtc.com/api/v1/order/finished" \
-              "?page=" + str(page) + \
-              "&limit=" + str(limit) + \
-              "&market=" + market + \
-              "&access_id=" + self.access_id
+        # api信息
+        api = {"access_id": self.access_id,
+               "limit": str(limit),
+               "market": market,
+               "page": str(page),
+               "secret_key": self.secret_key}
+        api_list = ["access_id", "limit", "market", "page", "secret_key"]
 
-        # 获取对应的签名
-        signature_before_md5 = "access_id=" + self.access_id + \
-                               "&limit=" + str(limit) + \
-                               "&market=" + market + \
-                               "&page=" + str(page) + \
-                               "&secret_key=" + self.secret_key
-        signature = self.md5(signature_before_md5)
+        # 链接信息
+        url = self.url("https://www.viabtc.com/api/v1/order/finished", api, api_list)
 
         # 将签名写入header
         header = self._header
-        header["Authorization"] = signature
+        header["Authorization"] = self.signature(api, api_list)
 
         # 请求并读取数据
         req = urllib2.Request(url, headers=header)
@@ -502,4 +545,206 @@ class ViabtcOrder(object):
         finished_orders = json.loads(response)
         # 返回数据
         return finished_orders
-##
+
+    # 4. 获取订单状态
+    def get_order_status(self, order_id, market="BCCCNY"):
+        """
+
+        :param order_id: 从订单中获取的一串数字信息
+        :param market: 市场列表
+        :return: order_status，形如：
+            {
+              "code": 0,
+              "data": {                           # 订单数据
+                "amount": "1000",                 # 委托数量
+                "avg_price": "11782.28",          # 平均成交价格
+                "create_time": 1496761108,        # 下单时间
+                "deal_amount": "1000",            # 成交数量
+                "deal_fee": "23564.5798468",      # 交易手续费用
+                "deal_money": "11782289.9234",    # 成交金额
+                "id": 300021,                     # 订单编号
+                "left": "9.4",                    # 未成交数量
+                "maker_fee_rate": "0.001",        # maker费率
+                "market": "BTCCNY",               # 市场
+                "order_type": "limit",            # 委托类型
+                "price": "7000",                  # 委托价格
+                "status": "done",                 # 订单状态
+                "taker_fee_rate": "0.002",        # taker费率
+                "type": "sell"                    # 订单类型
+                }
+              },
+              "message": "Ok"
+            }
+        """
+
+        # api信息
+        api = {"access_id": self.access_id,
+               "id": str(order_id),
+               "market": market,
+               "secret_key": self.secret_key}
+        api_list = ["access_id", "id", "market", "secret_key"]
+
+        # 链接信息
+        url = self.url("https://www.viabtc.com/api/v1/order/", api, api_list)
+
+        # 将签名写入header
+        header = self._header
+        header["Authorization"] = self.signature(api, api_list)
+
+        # 请求并读取数据
+        req = urllib2.Request(url, headers=header)
+        response = urllib2.urlopen(req).read()
+        # 解析数据
+        order_status = json.loads(response)
+        # 返回数据
+        return order_status
+
+    # 5. 下市价单
+    def order_market(self, order_type, amount, market="BCCCNY"):
+        """
+
+        下市价单
+
+        :param order_type: "buy" or "sell"
+        :param amount: > 0.01               #市价单时，sell的amount是数量，buy的amount是金额。
+        :param market: one from market list
+        :return:
+        {
+          "code": 0,
+          "data": {
+            "amount": "56.5",              # 委托数量
+            "avg_price": "11641.3",        # 平均成交价格
+            "create_time": 1496798479,     # 下单时间
+            "deal_amount": "56.5",         # 成交数量
+            "deal_money": "657733.4561",   # 成交金额
+            "id": 300032,                  # 订单编号
+            "left": "0",                   # 未成交数量
+            "maker_fee_rate": "0",         # maker手续费率
+            "market": "BTCCNY",            # 市场
+            "order_type": "market",        # 委托类型：limit:限价单；market:市价单；
+            "price": "0",                  # 委托价格
+            "source_id": "123",            # 用户自定义编号
+            "status": "done",              # 订单状态：done:已成交；part_deal:部分成交；not_deal:未成交；
+            "taker_fee_rate": "0.002",     # taker手续费率
+            "type": "sell"                 # 订单类型：sell:卖出订单；buy:买入订单；
+          },
+          "message": "Ok"
+        }
+        """
+        request_client = RequestClient(
+            access_id=self.access_id,
+            secret_key=self.secret_key
+        )
+
+        data = {
+            "amount": str(amount),
+            "type": order_type,
+            "market": "BCCCNY"
+        }
+
+        result = request_client.request(
+            'POST',
+            'https://www.viabtc.com/api/v1/order/market',
+            json=data,
+        )
+        return result.json()
+
+    # 6. 下限价单
+    def order_limit(self, order_type, amount, price, market="BCCCNY"):
+        """
+
+        下限价单
+
+        :param order_type: "buy" or "sell"
+        :param amount: > 0.01               #限价单时，amount一直表示数量。
+        :param price: > 0
+        :param market: one from market list
+        :return:
+        {
+          "code": 0,
+          "data": {
+            "amount": "56.5",              # 委托数量
+            "avg_price": "11641.3",        # 平均成交价格
+            "create_time": 1496798479,     # 下单时间
+            "deal_amount": "56.5",         # 成交数量
+            "deal_fee": "1315.4669122",    # 交易手续费用
+            "deal_money": "657733.4561",   # 成交金额
+            "id": 300032,                  # 订单编号
+            "left": "0",                   # 未成交数量
+            "maker_fee_rate": "0.001",     # maker手续费率
+            "market": "BTCCNY",            # 市场
+            "order_type": "limit",         # 委托类型：limit:限价单；market:市价单；
+            "price": "7000",               # 委托价格
+            "source_id": "123",            # 用户自定义编号
+            "status": "done",              # 订单状态：done:已成交；part_deal:部分成交；not_deal:未成交；
+            "taker_fee_rate": "0.002",     # taker手续费率
+            "type": "sell"                 # 订单类型：sell:卖出订单；buy:买入订单；
+          },
+          "message": "Ok"
+        }
+        """
+        request_client = RequestClient(
+            access_id=self.access_id,
+            secret_key=self.secret_key
+        )
+
+        data = {
+            "amount": str(amount),
+            "price": str(price),
+            "type": order_type,
+            "market": "BCCCNY"
+        }
+
+        result = request_client.request(
+            'POST',
+            'https://www.viabtc.com/api/v1/order/limit',
+            json=data,
+        )
+        return result.json()
+
+    # 7. 撤销订单
+    def order_withdraw(self, order_id, market="BCCCNY"):
+        """
+        撤销订单
+        :param order_id: 需要提前获取订单id
+        :param market: 市场代码
+        :return:
+        {
+          "code": 0,
+          "data": {
+            "amount": "56.5",              # 委托数量
+            "avg_price": "11641.3",        # 平均成交价格
+            "create_time": 1496798479,     # 下单时间
+            "deal_amount": "56.5",         # 成交数量
+            "deal_fee": "1315.4669122",    # 交易手续费用
+            "deal_money": "657733.4561",   # 成交金额
+            "id": 300032,                  # 订单编号
+            "left": "0",                   # 未成交数量
+            "maker_fee_rate": "0.001",     # maker手续费率
+            "market": "BTCCNY",            # 市场
+            "order_type": "limit",         # 委托类型：limit:限价单；market:市价单；
+            "price": "7000",               # 委托价格
+            "source_id": "123",            # 用户自定义编号
+            "status": "done",              # 订单状态：done:已成交；part_deal:部分成交；not_deal:未成交；
+            "taker_fee_rate": "0.002",     # taker手续费率
+            "type": "sell"                 # 订单类型：sell:卖出订单；buy:买入订单；
+          },
+          "message": "Ok"
+        }
+        """
+        request_client = RequestClient(
+            access_id=self.access_id,
+            secret_key=self.secret_key
+        )
+
+        data = {
+            "order_id": str(order_id),
+            "market": "BCCCNY"
+        }
+
+        result = request_client.request(
+            'DELETE',
+            'https://www.viabtc.com/api/v1/order/pending',
+            json=data,
+        )
+        return result.json()
