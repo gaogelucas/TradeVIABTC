@@ -1,2 +1,2 @@
 # TradeVIABTD
-这是对VIABTD交易借口和数据借口的简单封装。
+A encapsulation of viabtc.com's data and order API for BTC/BCC trade.
