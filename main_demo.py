@@ -4,8 +4,8 @@
 # update: 20170811
 ##
 from __future__ import unicode_literals
-from TradeVIABTC import ViabtcOrder as Order
-from TradeVIABTC import ViabtcData as Data
+from ViabtcAPI import ViabtcOrder as Order
+from ViabtcAPI import ViabtcData as Data
 
 ##
 # 记录我的ID和KEY
