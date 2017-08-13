@@ -79,14 +79,14 @@ class DataStore(object):
             while 1:
                 DataStore.store_data(data_type=data_type, market=market)
                 time.sleep(sleeptime)
-        except:
+        except:  # 如果出问题后自动刷新
             print "something wrong, retry in 5 seconds"
             time.sleep(5)
             DataStore.collect_data(data_type=data_type, market=market)
 
     # 3. 将数据刷新一次
     @staticmethod
-    def refresh_data_in(market="BCCCNY"):
+    def refresh_data_in(market="BCCCNY"):  # 出问题后已经会自动刷新了
         for i in DataStore.__data_types:
             print "\n# refreshing " + i + " data in " + market + " market #"
             DataStore.store_data(data_type=i, market=market)
@@ -96,8 +96,4 @@ class DataStore(object):
     @staticmethod
     def refresh_data_in_all_markets():
         for market in DataStore.__markets:
-            DataStore.refresh_data_in(market=market)
-
-
-##
-DataStore.refresh_data_in_all_markets()
+            DataStore.refresh_data_in(market=market)  # 出问题后已经会自动刷新了
