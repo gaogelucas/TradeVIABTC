@@ -44,7 +44,9 @@ class ViabtcData(object):
 
     # 初始化
     def __init__(self):
-        pass
+        self.markets = ["BTCCNY", "BCCCNY", "BCCBTC", "LTCCNY", "ETHCNY", "ZECCNY", "148ETH"]
+
+    markets = ["BTCCNY", "BCCCNY", "BCCBTC", "LTCCNY", "ETHCNY", "ZECCNY", "148ETH"]
 
     # 1. 获取当前的行情数据
     @staticmethod
@@ -92,7 +94,7 @@ class ViabtcData(object):
 
     # 2. 获取当前的委托行情
     @staticmethod
-    def get_market_depth(market="BCCCNY", merge=1, limit=10, header=_header):
+    def get_market_depth(market="BCCCNY", merge=0, limit=100, header=_header):
         """ (market:str, merge:int, limit:int, header:str) -> dict
 
         获取当前的委托行情
@@ -336,6 +338,7 @@ class ViabtcOrder(object):
     def __init__(self, acs_id, scr_key):
         self.access_id = acs_id
         self.secret_key = scr_key
+        self.markets = ["BTCCNY", "BCCCNY", "BCCBTC", "LTCCNY", "ETHCNY", "ZECCNY", "148ETH"]
 
     # 制作请求链接
     @staticmethod
@@ -748,3 +751,71 @@ class ViabtcOrder(object):
             json=data,
         )
         return result.json()
+
+    # #####高级指令#####
+    def withdraw_all(self, market="BCCCNY"):
+        uo = self.get_unfinished_orders(market=market)
+        ids = [i.get("id") for i in uo.get("data").get("data")]
+        if not ids:
+            print "no unfinished orders"
+        else:
+            for i in ids:
+                self.order_withdraw(i, market=market)
+            print "order_withdraw done."
+
+    def buy_limit(self, price, amount_percent=1, market="BCCCNY"):
+        if amount_percent > 1.0 or amount_percent < 0.0:
+            print "amount_percent should from 0 to 1"
+            return
+        ai = self.get_account_info()
+        cnyleft = float(ai.get("data").get("CNY").get("available"))
+        amount = (cnyleft / float(price)-0.001) * amount_percent
+        if amount >= 0.01:
+            self.order_limit("buy", amount=amount, price=price, market=market)
+            print "order done."
+        else:
+            print "your money is not enough to buy 0.01 unit"
+
+    def buy_market(self, amount_percent=1, market="BCCCNY"):
+        if amount_percent > 1.0 or amount_percent < 0.0:
+            print "amount_percent should from 0 to 1"
+            return
+        ai = self.get_account_info()
+        cnyleft = float(ai.get("data").get("CNY").get("available"))
+        amount = cnyleft * amount_percent
+        try:
+            self.order_market("buy", amount=amount, market=market)
+            print "order done."
+        except:
+            print "your money is not enough to buy 0.01 unit"
+            print "UNDONE."
+
+    def sell_limit(self, price, amount_percent=1, market="BCCCNY"):
+        if amount_percent > 1 or amount_percent < 0.0:
+            print "amount_percent should from 0 to 1"
+            return
+        ai = self.get_account_info()
+        cointype = market[:3]
+        amount = float(ai.get("data").get(cointype).get("available")) * amount_percent
+        if amount >= 0.01:
+            self.order_limit("sell", amount, price, market=market)
+            print "order done."
+        else:
+            print "amount not enough to sell"
+
+    def sell_market(self, amount_percent=1, market="BCCCNY"):
+        if amount_percent > 1.0 or amount_percent < 0.0:
+            print "amount_percent should from 0 to 1"
+            return
+        ai = self.get_account_info()
+        cointype = market[:3]
+        amount = float(ai.get("data").get(cointype).get("available")) * amount_percent
+        if amount >= 0.01:
+            self.order_market("sell", amount, market=market)
+            print "order done."
+        else:
+            print "amount not enough to sell"
+
+
+
+
