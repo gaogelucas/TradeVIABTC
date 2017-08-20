@@ -11,6 +11,9 @@ import hashlib
 # viabtc给出的请求demo和库，用于POST和DELETE请求
 # https://github.com/viabtc/viabtc_exchange_cn_api_cn
 from oauth import RequestClient
+import time
+import os
+import multiprocessing
 ##
 
 
@@ -642,7 +645,7 @@ class ViabtcOrder(object):
         data = {
             "amount": str(amount),
             "type": order_type,
-            "market": "BCCCNY"
+            "market": market
         }
 
         result = request_client.request(
@@ -695,7 +698,7 @@ class ViabtcOrder(object):
             "amount": str(amount),
             "price": str(price),
             "type": order_type,
-            "market": "BCCCNY"
+            "market": market
         }
 
         result = request_client.request(
@@ -742,7 +745,7 @@ class ViabtcOrder(object):
 
         data = {
             "order_id": str(order_id),
-            "market": "BCCCNY"
+            "market": market
         }
 
         result = request_client.request(
@@ -815,6 +818,387 @@ class ViabtcOrder(object):
             print "order done."
         else:
             print "amount not enough to sell"
+
+
+class ViabtcAutotrade(object):
+    def __init__(self, access_id, secret_key, market="BCCCNY"):
+        self.order = ViabtcOrder(access_id, secret_key)
+        self.market = market
+
+    # withdraw
+    def withdraw(self, od_id=""):
+        if od_id == "":
+            self.order.withdraw_all(market=self.market)
+        else:
+            self.order.order_withdraw(order_id=od_id, market=self.market)
+
+    # 持续向下报价
+    def pull_down(self, step=0.01, amount=0.01):
+        last_id = ""
+        last_price = 0
+        while 1:
+            time.sleep(0.5)
+            print "0"
+            market_depth = ViabtcData.get_market_depth(limit=1, market=self.market)
+            bid_price, bid_amount = map(float, market_depth["data"]["bids"][0])
+            ask_price, ask_amount = map(float, market_depth["data"]["asks"][0])
+
+            # 先写一个追踪策略
+            if ask_price > bid_price + step:
+                if last_id != "":
+                    print "1"
+                    self.order.order_withdraw(last_id, market=self.market)
+                    if last_price <= bid_price + step:
+                        print "4"
+                        break
+                    sell1 = self.order.order_limit("sell",
+                                                   price=min([ask_price, last_price]) - step,
+                                                   amount=amount,
+                                                   market=self.market)
+                    print sell1
+                    last_id = sell1["data"]["id"]
+                    last_price = float(sell1["data"]["price"])
+                else:
+                    print "2"
+                    sell1 = self.order.order_limit("sell",
+                                                   price=ask_price - step,
+                                                   amount=amount,
+                                                   market=self.market)
+                    print sell1
+                    last_id = sell1["data"]["id"]
+                    last_price = float(sell1["data"]["price"])
+            else:
+                print "3"
+                self.order.withdraw_all(market=self.market)
+                break
+
+    # 持续向上报价
+    def pull_up(self, step=0.01, amount=0.01):
+        last_id = ""
+        last_price = 0
+        while 1:
+            time.sleep(0.5)
+            print "0"
+            market_depth = ViabtcData.get_market_depth(limit=1, market=self.market)
+            bid_price, bid_amount = map(float, market_depth["data"]["bids"][0])
+            ask_price, ask_amount = map(float, market_depth["data"]["asks"][0])
+
+            # 先写一个追踪策略
+            if ask_price > bid_price + step:
+                if last_id != "":
+                    print "1"
+                    self.order.order_withdraw(last_id, market=self.market)
+                    if last_price + step >= ask_price:
+                        print "4"
+                        break
+                    buy1 = self.order.order_limit("buy",
+                                                  price=max([bid_price, last_price]) + step,
+                                                  amount=amount,
+                                                  market=self.market)
+                    print buy1
+                    last_id = buy1["data"]["id"]
+                    last_price = float(buy1["data"]["price"])
+                else:
+                    print "2"
+                    buy1 = self.order.order_limit("buy",
+                                                  price=bid_price + step,
+                                                  amount=amount,
+                                                  market=self.market)
+                    print buy1
+                    last_id = buy1["data"]["id"]
+                    last_price = float(buy1["data"]["price"])
+            else:
+                print "3"
+                self.order.withdraw_all(market=self.market)
+                break
+
+    # 清楚level即之前位置的买单
+    def clean_bid(self, level=1):
+        market_depth = ViabtcData.get_market_depth(market=self.market)
+        asks = market_depth["data"]["asks"][:level]
+        bids = market_depth["data"]["bids"][:level]
+        for i in bids:
+            self.order.order_limit("sell", float(i[1]), float(i[0]), market=self.market)
+
+    # 清楚level即之后位置的买单
+    def clean_ask(self, level=1):
+        market_depth = ViabtcData.get_market_depth(market=self.market)
+        asks = market_depth["data"]["asks"][:level]
+        bids = market_depth["data"]["bids"][:level]
+        for i in asks:
+            self.order.order_limit("buy", float(i[1]), float(i[0]), market=self.market)
+
+    # 引诱买单，看看是否有机器跟单
+    def lure_bid(self, amount=0.01, price=0):
+        market_depth = ViabtcData.get_market_depth(limit=1, market=self.market)
+        bid_price, bid_amount = map(float, market_depth["data"]["bids"][0])
+        ask_price, ask_amount = map(float, market_depth["data"]["asks"][0])
+
+        if price == 0:
+            price = ask_price - 0.01
+
+        od = self.order.order_limit("buy", amount=amount, price=price, market=self.market)
+        od_price = float(od["data"]["price"])
+        od_id = od["data"]["id"]
+
+        time.sleep(0.5)
+
+        market_depth = ViabtcData.get_market_depth(limit=5, market=self.market)
+        bid_price1, bid_amount1 = map(float, market_depth["data"]["bids"][0])
+        ask_price1, ask_amount1 = map(float, market_depth["data"]["asks"][0])
+        bid_price2, bid_amount2 = map(float, market_depth["data"]["bids"][1])
+        ask_price2, ask_amount2 = map(float, market_depth["data"]["asks"][1])
+
+        if bid_price1 != od_price:
+            print "Shit, the deal has been eaten."
+        else:
+            if bid_amount1 != amount or bid_price2 == od_price - 0.01:
+                print "There is a follower, let's crush him!"
+                self.order.order_withdraw(order_id=od_id, market=self.market)
+            else:
+                print "There is no follower, peace."
+                self.order.order_withdraw(order_id=od_id, market=self.market)
+
+    # 引诱卖单，看看是否有机器跟单
+    def lure_ask(self, amount=0.01, price=0):
+
+        market_depth = ViabtcData.get_market_depth(limit=1, market=self.market)
+        bid_price, bid_amount = map(float, market_depth["data"]["bids"][0])
+        ask_price, ask_amount = map(float, market_depth["data"]["asks"][0])
+
+        if price == 0:
+            price = bid_price + 0.01
+
+        od = self.order.order_limit("sell", amount=amount, price=price, market=self.market)
+        od_price = float(od["data"]["price"])
+        od_id = od["data"]["id"]
+
+        time.sleep(0.5)
+
+        market_depth = ViabtcData.get_market_depth(limit=5, market=self.market)
+        bid_price1, bid_amount1 = map(float, market_depth["data"]["bids"][0])
+        ask_price1, ask_amount1 = map(float, market_depth["data"]["asks"][0])
+        bid_price2, bid_amount2 = map(float, market_depth["data"]["bids"][1])
+        ask_price2, ask_amount2 = map(float, market_depth["data"]["asks"][1])
+
+        if ask_price1 != od_price:
+            print "Shit, the deal has been eaten."
+        else:
+            if ask_amount1 != amount or ask_price2 == od_price + 0.01:
+                print "There is a follower, let's crush him!"
+                self.order.order_withdraw(order_id=od_id, market=self.market)
+            else:
+                print "There is no follower, peace."
+                self.order.order_withdraw(order_id=od_id, market=self.market)
+
+    # 自买自卖，强行成交
+    def self_deal(self, price, amount=0.01):
+        market_depth = ViabtcData.get_market_depth(limit=1, market=self.market)
+        bid_price, bid_amount = map(float, market_depth["data"]["bids"][0])
+        ask_price, ask_amount = map(float, market_depth["data"]["asks"][0])
+
+        if price > ask_price or price < bid_price:
+            print "Shit, your deal is going to be eaten, change your price."
+            return 0
+
+        self.order.order_limit("buy",
+                               price=price,
+                               amount=amount,
+                               market=self.market)
+        self.order.order_limit("sell",
+                               price=price,
+                               amount=amount,
+                               market=self.market)
+        self.order.withdraw_all(market=self.market)
+
+    # 返回买1的价格
+    def bid1_price(self):
+        market_depth = ViabtcData.get_market_depth(limit=1, market=self.market)
+        bid_price, bid_amount = map(float, market_depth["data"]["bids"][0])
+        ask_price, ask_amount = map(float, market_depth["data"]["asks"][0])
+        return bid_price + 0.01
+
+    # 返回买2的价格
+    def ask1_price(self):
+        market_depth = ViabtcData.get_market_depth(limit=1, market=self.market)
+        bid_price, bid_amount = map(float, market_depth["data"]["bids"][0])
+        ask_price, ask_amount = map(float, market_depth["data"]["asks"][0])
+        return ask_price - 0.01
+
+    # 在买方持续抢跑
+    def bid_runner(self, step=0.01, amount=0.01):
+        def bid_runner_temp(step=step, amount=amount):
+            last_id = ""
+            last_price = 0.0
+            while 1:
+                print "0"
+
+                time.sleep(0.1)
+
+                market_depth = ViabtcData.get_market_depth(limit=5, market=self.market)
+                bid_price, bid_amount = map(float, market_depth["data"]["bids"][0])
+                ask_price, ask_amount = map(float, market_depth["data"]["asks"][0])
+                bid_price2, bid_amount2 = map(float, market_depth["data"]["bids"][1])
+                ask_price2, ask_amount2 = map(float, market_depth["data"]["asks"][1])
+
+                print bid_price, last_price
+
+                # 判断是否是领跑者或虚高者
+                if bid_price == last_price:  # 领跑了，但别虚高，回退一点点
+                    print "peace, you are the first runner!"
+                    if bid_price - bid_price2 > 1.5 * step:
+                        base_price = bid_price2
+                    else:
+                        continue
+                elif bid_price > last_price:
+                    print "you got a Follower, you need run faster!"
+                    base_price = bid_price
+                else:
+                    print "be careful, your order may have been eaten!"
+                    base_price = bid_price
+
+                if base_price + step >= ask_price:
+                    print "Shit, your order may be eaten. withdraw all, start over."
+                    self.withdraw()
+                    last_price = 0.0
+                    last_id = ""
+                    continue
+
+                if last_id == "":
+                    self.order.withdraw_all(market=self.market)
+                else:
+                    self.order.order_withdraw(last_id, market=self.market)
+
+                od = self.order.order_limit("buy",
+                                            amount=amount,
+                                            price=base_price + step,
+                                            market=self.market)
+                last_id = od["data"]["id"]
+                last_price = float(od["data"]["price"])
+
+        try:
+            bid_runner_temp(step, amount)
+        except:
+            print "No enough money to buy"
+            while 1:
+                time.sleep(5)
+
+                account = self.order.get_account_info()
+                cny = float(account["data"]["CNY"]["available"])
+                price = float(self.bid1_price())
+                how_much_can_i_buy = cny / price
+
+                if how_much_can_i_buy >= step:
+                    self.bid_runner(step, amount)
+                else:
+                    continue
+
+    # 在卖方持续抢跑
+    def ask_runner(self, step=0.01, amount=0.01):
+        def ask_runner_temp(step=step, amount=amount):
+            last_id = ""
+            last_price = 0.0
+            while 1:
+                print "0"
+
+                time.sleep(0.1)
+
+                market_depth = ViabtcData.get_market_depth(limit=5, market=self.market)
+                bid_price, bid_amount = map(float, market_depth["data"]["bids"][0])
+                ask_price, ask_amount = map(float, market_depth["data"]["asks"][0])
+                bid_price2, bid_amount2 = map(float, market_depth["data"]["bids"][1])
+                ask_price2, ask_amount2 = map(float, market_depth["data"]["asks"][1])
+
+                print ask_price, last_price
+
+                if ask_price == last_price:
+                    print "peace, you are the first runner!"
+                    if ask_price2 - ask_price > 1.5 * step:
+                        base_price = ask_price2
+                    else:
+                        continue
+                elif ask_price < last_price:
+                    print "you got a Follower, you need run faster!"
+                    base_price = ask_price
+                else:
+                    print "be careful, your order may have been eaten!"
+                    base_price = ask_price
+
+                if base_price - step <= bid_price:
+                    print "Shit, your order may be eaten. withdraw all, start over."
+                    self.withdraw()
+                    last_price = 0.0
+                    last_id = ""
+                    continue
+
+                if last_id == "":
+                    self.order.withdraw_all(market=self.market)
+                else:
+                    self.order.order_withdraw(last_id, market=self.market)
+
+                od = self.order.order_limit("sell", amount=amount,
+                                            price=base_price - step,
+                                            market=self.market)
+                last_id = od["data"]["id"]
+                last_price = float(od["data"]["price"])
+
+        try:
+            ask_runner_temp(step, amount)
+        except:
+            print "No enough coin to sell"
+            while 1:
+                time.sleep(5)
+
+                account = self.order.get_account_info()
+                coin = float(account["data"][self.market[:3]]["available"])
+
+                if coin >= step:
+                    self.ask_runner(step, amount)
+                else:
+                    continue
+
+    # 套利交易测试机 测试是否存在套利交易
+    @staticmethod
+    def arbitrage_machine():
+        market_depth = ViabtcData.get_market_depth(market="BCCCNY", limit=1)
+        bid_priceBCCCNY, bid_amountBCCCNY = map(float, market_depth["data"]["bids"][0])
+        ask_priceBCCCNY, ask_amountBCCCNY = map(float, market_depth["data"]["asks"][0])
+
+        market_depth = ViabtcData.get_market_depth(market="BTCCNY", limit=1)
+        bid_priceBTCCNY, bid_amountBTCCNY = map(float, market_depth["data"]["bids"][0])
+        ask_priceBTCCNY, ask_amountBTCCNY = map(float, market_depth["data"]["asks"][0])
+
+        market_depth = ViabtcData.get_market_depth(market="BCCBTC", limit=1)
+        bid_priceBCCBTC, bid_amountBCCBTC = map(float, market_depth["data"]["bids"][0])
+        ask_priceBCCBTC, ask_amountBCCBTC = map(float, market_depth["data"]["asks"][0])
+
+        md = {
+            "BCC-CNY-bid": bid_priceBCCCNY,
+            "BCC-CNY-ask": ask_priceBCCCNY,
+            "BTC-CNY-bid": bid_priceBTCCNY,
+            "BTC-CNY-ask": ask_priceBTCCNY,
+            "BCC-BTC-bid": bid_priceBCCBTC,
+            "BCC-BTC-ask": ask_priceBCCBTC
+        }
+
+        cny_bcc_btc_cny = 1 / md["BCC-CNY-ask"] * 0.999 \
+                          * md["BCC-BTC-bid"] * 0.999 \
+                          * md["BTC-CNY-bid"] * 0.999
+
+        cny_btc_bcc_cny = 1 / md["BTC-CNY-ask"] * 0.999 \
+                          / md["BCC-BTC-ask"] * 0.999 \
+                          * md["BCC-CNY-bid"] * 0.999
+
+        return cny_bcc_btc_cny, cny_btc_bcc_cny
+
+    def market_maker(self, step=0.01, amount=0.01):
+
+        bidr = multiprocessing.Process(target=self.bid_runner,
+                                       args=(step, amount,))
+        askr = multiprocessing.Process(target=self.ask_runner,
+                                       args=(step, amount,))
+        bidr.start()
+        askr.start()
 
 
 
